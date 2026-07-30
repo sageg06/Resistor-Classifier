@@ -1,9 +1,8 @@
 """
 Real time resistor classifier
 
-Streams webcam frames to a Roboflow-hosted object detection model,
-annotates the highest confidence detection on screen, then reports the detected
-resistor value to an Arduino over serial for display.
+Runs a locally trained YOLOv8 model on webcam franes, annotates highest confidence
+detection on screen, then reports the detected resistor value to an Arduino over serial for display
 """
 # --- Imports ---
 import os
@@ -12,17 +11,15 @@ import time
 
 import cv2
 import serial
-from inference_sdk import InferenceHTTPClient
-
+from ultralytics import YOLO
 # --- Configuration ---
 ARDUINO_PORT= os.environ.get("ARDUINO_PORT", "COM3")
 BAUD_RATE = 9600
 
-ROBOFLOW_API_URL= "https://serverless.roboflow.com"
-MODEL_ID= "resistor-detector-rtlor/7"
+MODEL_PATH = "weights/best.pt"
+INFERENCE_SIZE = 960
 
 CAMERA_INDEX = 0
-INFERENCE_INTERVAL = 10 # Infers every Nth frame, increase this if webcam feed is slow/choppy
 CONFIDENCE_THRESHOLD = 0.5
 
 BOX_COLOR = (0, 255, 0) #BGR not RGB
@@ -30,6 +27,12 @@ WARNING_COLOR = (0, 0, 255)
 WINDOW_NAME = "Resistor Detector"
 
 # --- Setup Helpers ---
+def load_model(path):
+    #Loads trained weights
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Model not found: {path}, try copying best.pt from runs/detect/")
+    return YOLO(path)
+
 def connect_to_arduino(port, baud):
     # Open the serial link and wait on board to reset
     arduino = serial.Serial(port, baud, timeout=1)
@@ -44,44 +47,46 @@ def open_camera(index):
     return cap
 
 # --- Inference and Drawing ---
-def best_guess(prediction, threshold):
+def best_guess(results):
     #Returns the highest confidence prediction above 'threshold'
-    confident = [p for p in prediction if p.get("confidence", 0) > threshold]
-    if not confident:
+    boxes = results.boxes
+    if len(boxes) == 0:
         return None
-    return max(confident, key=lambda p: p["confidence"])
+    i = boxes.conf.argmax().item()
+    corners = boxes.xyxy[i].int().tolist()
+    return corners, boxes.conf[i].item(), int(boxes.cls[i].item())
 
-def draw_box(frame, prediction, label):
+def draw_box(frame, corners, confidence, label):
     # Draws bounding box and label for one prediction
-    # Roboflow reports box center and size, OpenCV wants opposite corners
-    x, y = prediction["x"], prediction["y"]
-    width, height = prediction["width"], prediction["height"]
-    top_left = (int(x - width / 2), int(y - height / 2))
-    bottom_right = (int(x + width / 2), int(y + height / 2))
+    x1, y1, x2, y2 = corners
 
-    cv2.rectangle(frame, top_left, bottom_right, BOX_COLOR, 2)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), BOX_COLOR, 2)
     cv2.putText(
         frame,
-        f"{label} ({prediction['confidence']:.2f})",
-        (top_left[0], max(top_left[1] - 10, 20)),  # Keep text on screen.
+        f"{label} ({confidence:.2f})",
+        (x1, max(y1 - 10, 20)),  # Keep text on screen.
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
         BOX_COLOR,
         2,
     )
 
-def classify_frame(client, frame):
+def classify_frame(model, frame):
     # Runs inference on one frame
     # returns (annotated_frame, label) and label is unknown when nothing clears confidence threshold
     try:
-        result = client.infer(frame, model_id=MODEL_ID)
-        predictions = result.get("predictions", [])
+        results = model(
+            frame,
+            imgsz=INFERENCE_SIZE,
+            conf=CONFIDENCE_THRESHOLD,
+            verbose=False,
+        )[0]
     except Exception as exc:
         print(f"Inference error: {exc}")
-        predictions = []
+        return frame.copy(), "Unknown"
 
     annotated = frame.copy()
-    best = best_guess(predictions, CONFIDENCE_THRESHOLD)
+    best = best_guess(results)
 
     if best is None:
         cv2.putText(
@@ -90,8 +95,9 @@ def classify_frame(client, frame):
         )
         return annotated, "Unknown"
 
-    label = best.get("class", "Unknown").replace("_", " ")
-    draw_box(annotated, best, label)
+    corners, confidence, class_index = best
+    label = model.names[class_index].replace("_", " ")
+    draw_box(annotated, corners, confidence, label)
     return annotated, label
 
 def send_label(arduino, label):
@@ -102,12 +108,12 @@ def send_label(arduino, label):
 
 # --- Main Loop ---
 def main():
-    api_key = os.environ.get("ROBOFLOW_API_KEY")
-    if not api_key:
-        print("ROBOFLOW_API_KEY not set! See README for setup!")
-        exit()
-
-    client = InferenceHTTPClient(api_url=ROBOFLOW_API_URL, api_key=api_key)
+    try:
+        model = load_model(MODEL_PATH)
+    except FileNotFoundError as exc:
+        sys.exit(str(exc))
+    print(f"Model loaded: {MODEL_PATH}")
+    print(f"Classes: {', '.join(model.names.values())}")
 
     try:
         arduino = connect_to_arduino(ARDUINO_PORT, BAUD_RATE)
@@ -125,7 +131,6 @@ def main():
     print("Camera successfully opened! Press Q to quit.")
 
     last_sent_label = None
-    frame_count = 0
 
     try:
         while True:
@@ -134,14 +139,10 @@ def main():
                 print("Failed to read camera frame :(")
                 break
 
-            frame_count += 1
-            if frame_count % INFERENCE_INTERVAL == 0:
-                display_frame, label = classify_frame(client, frame)
-                if label != last_sent_label:
-                    send_label(arduino, label)
-                    last_sent_label = label
-            else:
-                display_frame = frame
+            display_frame, label = classify_frame(model, frame)
+            if label != last_sent_label:
+                send_label(arduino, label)
+                last_sent_label = label
 
             cv2.imshow(WINDOW_NAME, display_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):

@@ -1,7 +1,7 @@
-path: C:/Users/skypl/PycharmProjects/resistor-classifier/datasets/resistor-detector
-train: /train/images
-val: /valid/images
-test: /test/images
+path: C:/Users/skypl/PycharmProjects/Resistor-Classifier/datasets/resistor-detector
+train: train/images
+val: valid/images
+test: test/images
 
 nc: 7
 names: ['10k_Ohm', '10M_Ohm', '1M_Ohm', '1k_Ohm', '220_Ohm', '4.7k_Ohm', '560_Ohm']

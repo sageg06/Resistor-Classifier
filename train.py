@@ -5,13 +5,12 @@ def main():
 
     model.train(
         data = "data.yaml",
-        epochs = 3,
-        imgsz = 640,
-        batch = 32,
+        epochs = 200,
+        imgsz = 960,
+        batch = 16,
         device = 0,
-        workers = 8,
-        patience = 25,
-        project = "runs",
+        workers = 4,
+        patience = 50,
         name = "resistor_v1"
     )
 
