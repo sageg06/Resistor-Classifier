@@ -1,7 +1,7 @@
 # Resistor-Classifier
 Real-time resistor identification from a webcam feed with results pushed to an Arduino over serial for on-device display.
 
-A webcam frame is sent to a custom trained object detection model hosted on Roboflow. The highest confidence detection is drawn on a live preview window and its class label (ex. 220 Ohm) is written to an Arduino, which displays the value on a connected LCD screen. Serial writes are debounced so the board is only updated when the detected value actually changes.
+A webcam frame is sent to a custom trained YOLOv8n object detection model where the highest confidence detection is drawn on a live preview window and its class label (ex. 220 Ohm) is written to an Arduino, which displays the value on a connected LCD screen. Serial writes are debounced so the board is only updated when the detected value actually changes.
 
 <img width="476" height="356" alt="resistor_detector_screenshot" src="https://github.com/user-attachments/assets/862acb33-74d2-4e63-98d1-5b5a63679884" />
 
@@ -33,7 +33,7 @@ Flash arduino/resistor_display/resistor_display.ino to the board before running 
 Only one setting!
 ```
 # macOS / Linux:
-export ARDUINO_PORT="/dev/ttyACMO"
+export ARDUINO_PORT="/dev/ttyACM0"
 ```
 ```
 # Windows (PowerShell):
@@ -72,7 +72,7 @@ The Arduino sketch reads until `\n` and updates the display with the result.
 
 ## Model
 Custom-trained YOLOv8n on through-hole resistors from the Arduino beginner kit captured under varied lighting and orientation.
-* **7 classes:** 10k_Ohm, 10M_Ohm, 1k_Ohm, 1M_Ohm, 220_Ohm, 47k_Ohm, 560_Ohm
+* **7 classes:** 10k_Ohm, 10M_Ohm, 1k_Ohm, 1M_Ohm, 220_Ohm, 4.7k_Ohm, 560_Ohm
 * **2882 images,** 80/10/10 train/test/validate split (2306/289/287)
 * Trained at 960px, 200 epoch ceiling with early stopping
 * Dataset: [Roboflow Universe](https://universe.roboflow.com/sages-workspace-td266/resistor-detector-rtlor) (CC BY 4.0)
@@ -123,3 +123,6 @@ resistor-classifier/
 ├── .gitignore
 └── README.md
 ```
+
+## License 
+This project is licensed under the **GNU Affero General Public License v3.0** ([AGPL‑3.0](https://www.gnu.org/licenses/agpl-3.0.html)) [^1^].
